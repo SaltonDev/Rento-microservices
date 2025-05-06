@@ -42,10 +42,10 @@ router.post('/login', async (req, res) => {
     .single()
 
   if (!user || !(await bcrypt.compare(password, user.password)))
-    return res.status(401).json({ error: 'Invalid credentials' })
+    return res.status(401).json({ success:false, error: 'Invalid credentials' })
 
   const token = signToken(user)
-  res.json({ user: { id: user.id, email: user.email }, token })
+  res.json({ user: { id: user.id, email: user.email,name:user.name }, token , success:true})
 })
 
 module.exports = router
