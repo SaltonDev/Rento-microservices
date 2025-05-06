@@ -4,17 +4,17 @@ const supabase = require("../supabaceClient.js");
 
 // Create unit
 router.post("/", async (req, res) => {
-  const { unit_name, floor, property_id } = req.body;
+  const { unit_name, floor, property_id,status } = req.body;
 
   // Validation: Ensure all fields are provided
-  if (!unit_name || !floor || !property_id) {
-    return res.status(400).json({ error: "All fields (unit_name, floor, property_id) are required." });
+  if (!unit_name || !floor || !property_id||!status) {
+    return res.status(400).json({ error: "All fields (unit_name, floor, property_id,status) are required." });
   }
-
+ console.log(status);
   // Insert the new unit into the database
   const { data, error } = await supabase
     .from("units")
-    .insert([{ unit_name, floor, property_id }])
+    .insert([{ unit_name, floor, property_id ,status}])
     .select()
     .single();
 
@@ -38,10 +38,10 @@ router.get("/", async (_, res) => {
 // Update unit
 router.put("/:id", async (req, res) => {
   const { id } = req.params;
-  const { unit_name, floor, property_id } = req.body;
+  const { unit_name, floor, property_id,status } = req.body;
   const { data, error } = await supabase
     .from("units")
-    .update({ unit_name, floor, property_id })
+    .update({ unit_name, floor, property_id,status })
     .eq("id", id)
     .select()
     .single();
