@@ -4,11 +4,11 @@ const router = express.Router()
 
 // Create a property
 router.post('/', async (req, res) => {
-  const { property_name, address, total_units } = req.body
+  const { name, address, total_units } = req.body
 
   const { data, error } = await supabase
     .from('properties')
-    .insert([{ property_name, address, total_units }])
+    .insert([{ name, address, total_units }])
     .select()
     .single()
 
@@ -29,11 +29,11 @@ router.get('/', async (req, res) => {
 // Update a property
 router.put('/:id', async (req, res) => {
   const { id } = req.params
-  const { property_name, address, total_units } = req.body
+  const { name, address, total_units } = req.body
 
   const { data, error } = await supabase
     .from('properties')
-    .update({ property_name, address, total_units })
+    .update({ name, address, total_units })
     .eq('id', id)
     .select()
     .single()
