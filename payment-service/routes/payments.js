@@ -1,119 +1,180 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../supabaseClient');
+const axios = require('axios');
 
-// Create a payment
+
+
+// Create Payment Endpoint
 router.post('/', async (req, res) => {
-  const { tenant_id, amount, payment_date } = req.body;
+  const { tenant_id, amount, method, payment_date, status } = req.body;  
+  
+  try {    
 
-  // Get tenant info
-  const { data: tenant, error: tenantError } = await supabase
-    .from('tenants')
-    .select('monthly_rent, rent_due_day')
-    .eq('id', tenant_id)
-    .single();
+    // Insert payment into the database
+    const { data, error } = await supabase
+      .from('payments')
+      .insert([{ tenant_id, amount, method, payment_date, status }])
+      .select();
 
-  if (tenantError || !tenant) return res.status(404).json({ error: 'Tenant not found' });
+    if (error) return res.status(400).json({ error: error.message });
 
-  const now = new Date(payment_date || new Date());
-  const dueDate = new Date(now.getFullYear(), now.getMonth(), tenant.rent_due_day);
-  const daysLate = Math.max(0, Math.floor((now - dueDate) / (1000 * 60 * 60 * 24)));
-  const status = daysLate > 0 ? 'overdue' : 'paid';
-
-  const { data, error } = await supabase.from('payments').insert([{
-    tenant_id,
-    amount,
-    payment_date: now.toISOString(),
-    due_date: dueDate.toISOString(),
-    status,
-    note: daysLate > 0 ? `Paid ${daysLate} day(s) late` : null
-  }]).select().single();
-
-  if (error) return res.status(400).json({ error });
-  res.json(data);
+    res.json(data[0]);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch lease data or create payment' });
+  }
 });
 
 // Get all payments
-router.get('/', async (_, res) => {
+router.get('/', async (req, res) => {
   const { data, error } = await supabase.from('payments').select('*');
-  if (error) return res.status(500).json({ error });
+  if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
-// Get overdue payments
-router.get('/overdue', async (req, res) => {
-    try {
-      const today = new Date();
-      const maxMonthsBack = 12;
-  
-      const { data: tenants, error: tErr } = await supabase
-        .from('tenants')
-        .select('id, full_name, property_id, unit_id, monthly_rent, rent_due_day');
-      if (tErr) return res.status(500).json({ error: tErr.message });
-  
-      const overdueList = [];
-  
-      for (const tenant of tenants) {
-        let overdueMonths = [];
-  
-        // 1. Fetch all payments made by tenant in last year
-        const fromDate = new Date(today.getFullYear(), today.getMonth() - maxMonthsBack, 1).toISOString();
-        const { data: allPayments, error: pErr } = await supabase
-          .from('payments')
-          .select('payment_date, amount')
-          .eq('tenant_id', tenant.id)
-          .gte('payment_date', fromDate);
-  
-        if (pErr) continue;
-  
-        // 2. Collect unpaid months
-        for (let i = 1; i <= maxMonthsBack; i++) {
-          const checkDate = new Date(today.getFullYear(), today.getMonth() - i, tenant.rent_due_day);
-          if (checkDate > today) continue;
-  
-          const startOfMonth = new Date(checkDate.getFullYear(), checkDate.getMonth(), 1);
-          const endOfMonth = new Date(checkDate.getFullYear(), checkDate.getMonth() + 1, 0);
-  
-          const paidInThisMonth = allPayments.some(p => {
-            const date = new Date(p.payment_date);
-            return date >= startOfMonth && date <= endOfMonth;
-          });
-  
-          if (!paidInThisMonth) {
-            overdueMonths.push(checkDate);
+// Get payment history by tenant ID
+router.get('/tenant/:tenantId', async (req, res) => {
+  const { tenantId } = req.params;
+  console.log(tenantId);
+  try {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('tenant_id', tenantId)      
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    // Return empty array if no payments found (200 status)
+    res.status(200).json(data);
+    
+  } catch (err) {
+    console.error('Server error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update a payment
+router.put('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await supabase
+    .from('payments')
+    .update(req.body)
+    .eq('id', id)
+    .select();
+  if (error) return res.status(400).json({ error: error.message });
+  res.json(data[0]);
+});
+
+// Delete a payment
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { error } = await supabase.from('payments').delete().eq('id', id);
+  if (error) return res.status(400).json({ error: error.message });
+  res.status(204).send();
+});
+
+
+router.get('/overdue-report', async (req, res) => {
+  try {
+    const tenantsResponse = await axios.get('https://rento-tenant-microservice.onrender.com/api/tenants');
+    const tenants = tenantsResponse.data;
+
+    const overdueReport = [];
+
+    for (let tenant of tenants) {
+      try {
+        const leaseResponse = await axios.get(`http://localhost:3006/api/leases/tenant/${tenant.id}`);
+        const lease = leaseResponse.data;
+
+        const paymentResponse = await axios.get(`http://localhost:3005/api/payments/tenant/${tenant.id}`);
+        const payments = paymentResponse.data;
+
+        const today = new Date();
+        const leaseStartDate = new Date(lease.lease_start);
+        const leaseEndDate = new Date(lease.lease_end);
+        const dueDay = lease.due_date;
+        const rentAmount = lease.monthly_rent;
+        const billingMode = lease.billing_mode || 'prepaid';
+
+        payments.sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date));
+        let lastPaymentDate = payments.length > 0 ? new Date(payments[0].payment_date) : null;
+
+        if (lastPaymentDate && lastPaymentDate < leaseStartDate) {
+          lastPaymentDate = leaseStartDate;
+        }
+
+        let expectedPaymentDate;
+        let totalDaysOverdue = 0;
+        let monthsOverdue = 0;
+
+        if (lastPaymentDate) {
+          expectedPaymentDate = new Date(lastPaymentDate);
+          expectedPaymentDate.setDate(dueDay);
+
+          // Adjust based on billing mode
+          if (billingMode === 'prepaid') {
+            expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
+          }
+        } else {
+          expectedPaymentDate = new Date(leaseStartDate);
+          expectedPaymentDate.setDate(dueDay);
+
+          if (leaseStartDate.getDate() > dueDay) {
+            expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
+          }
+
+          // Prepaid starts from lease start, postpaid starts a month later
+          if (billingMode === 'postpaid') {
+            expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
           }
         }
-  
-        // 3. Match recent payments to overdue months (assume full payments cover oldest months)
-        const paymentsSorted = allPayments
-          .filter(p => p.amount >= tenant.monthly_rent)
-          .sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date)); // newest first
-  
-        const uncoveredMonths = overdueMonths.slice(Math.max(0, paymentsSorted.length));
-  
-        if (uncoveredMonths.length > 0) {
-          const earliest = uncoveredMonths[0];
-          const daysOverdue = Math.floor((today - earliest) / (1000 * 60 * 60 * 24));
-  
-          overdueList.push({
-            tenant_id: tenant.id,
-            name: tenant.full_name,
-            property_id: tenant.property_id,
-            unit_id: tenant.unit_id,
-            months_due: uncoveredMonths.length,
-            first_due_date: earliest.toISOString(),
-            days_overdue: daysOverdue,
-            combined_total_due: tenant.monthly_rent * uncoveredMonths.length,
+
+        while (expectedPaymentDate <= today && expectedPaymentDate < leaseEndDate) {
+          monthsOverdue++;
+
+          const periodEnd = new Date(expectedPaymentDate);
+          periodEnd.setMonth(periodEnd.getMonth() + 1);
+          periodEnd.setDate(dueDay);
+
+          if (periodEnd > today) {
+            totalDaysOverdue += Math.floor((today - expectedPaymentDate) / (1000 * 60 * 60 * 24));
+          } else {
+            totalDaysOverdue += Math.floor((periodEnd - expectedPaymentDate) / (1000 * 60 * 60 * 24));
+          }
+
+          expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
+        }
+
+        if (monthsOverdue > 0) {
+          overdueReport.push({
+            tenant_name: tenant.full_name,
+            months_overdue: monthsOverdue,
+            days_overdue: totalDaysOverdue,
+            last_payment_date: lastPaymentDate ? lastPaymentDate.toISOString().split('T')[0] : 'Never',
+            property: tenant.property_id,
+            total_amount_due: monthsOverdue * rentAmount,
+            due_day_of_month: dueDay,
+            billing_mode: billingMode
           });
         }
+
+      } catch (err) {
+        console.error(`Error processing tenant ${tenant.id}:`, err);
+        // Continue with next tenant
       }
-  
-      res.json(overdueList);
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Error calculating overdue payments' });
     }
-  });
-  
+
+    res.status(200).json(overdueReport);
+
+  } catch (error) {
+    console.error('Report generation error:', error);
+    res.status(500).json({ error: 'Error generating overdue report' });
+  }
+});
+
+
 
 module.exports = router;
