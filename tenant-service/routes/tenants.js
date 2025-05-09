@@ -26,6 +26,21 @@ router.get("/", async (_, res) => {
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
+// get tenant by tenant id
+router.get("/:id", async (req, res) => {
+  const { id } = req.params;
+
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("*")
+    .eq("id", id)
+    .single(); // Ensures only one record is returned
+
+  if (error) return res.status(500).json({ error });
+  if (!data) return res.status(404).json({ error: "Tenant not found" });
+
+  res.json(data);
+});
 
 // Update tenant
 router.put("/:id", async (req, res) => {
