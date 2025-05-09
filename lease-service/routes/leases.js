@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../supabaseClient');
 
+
 // Create a lease
 router.post('/', async (req, res) => {
   const {
