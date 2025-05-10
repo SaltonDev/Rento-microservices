@@ -68,13 +68,13 @@ router.get("/", async (req, res) => {
       const propertyName = property?.name || "Unknown";
 
       result.push({
-        id: payment.id, 
+        id: payment.id,
         tenant: tenantName,
         property: propertyName,
         method: payment.method,
         amount: payment.amount,
         status: payment.status,
-        payment_date:payment.payment_date
+        payment_date: payment.payment_date,
       });
     }
 
@@ -128,117 +128,146 @@ router.delete("/:id", async (req, res) => {
   res.status(204).send();
 });
 
+
+// Helper function to ensure valid due dates
+function setSafeDueDate(date, dueDay) {
+  const result = new Date(date);
+  const daysInMonth = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(dueDay, daysInMonth));
+  return result;
+}
+
 router.get("/overdue-report", async (req, res) => {
   try {
-    const tenantsResponse = await axios.get(
-      "https://rento-tenant-microservice.onrender.com/api/tenants"
-    );
-    const tenants = tenantsResponse.data;
+    const { data: tenants, error: tenantsError } = await supabase
+      .from('tenants')
+      .select('*')
+      
+    if (tenantsError) throw new Error(tenantsError.message);
 
     const overdueReport = [];
+    const today = new Date();
 
-    for (let tenant of tenants) {
+    for (const tenant of tenants) {
       try {
-        const leaseResponse = await axios.get(
-          `http://localhost:3006/api/leases/tenant/${tenant.id}`
-        );
-        const lease = leaseResponse.data;
+        // 1. Get lease info
+        const { data: lease, error: leaseError } = await supabase
+          .from('leases')
+          .select('*')
+          .eq('tenant_id', tenant.id)
+          .single();
+        
+        if (leaseError) throw new Error(leaseError.message);
 
-        const paymentResponse = await axios.get(
-          `http://localhost:3005/api/payments/tenant/${tenant.id}`
-        );
-        const payments = paymentResponse.data;
+        // 2. Get all payments (sorted newest first)
+        const { data: payments, error: paymentsError } = await supabase
+          .from('payments')
+          .select('*')
+          .eq('tenant_id', tenant.id)
+          .order('payment_date', { ascending: false });
+        
+        if (paymentsError) throw new Error(paymentsError.message);
 
-        const today = new Date();
-        const leaseStartDate = new Date(lease.lease_start);
-        const leaseEndDate = new Date(lease.lease_end);
+        // 3. Calculate payment expectations
+        const leaseStart = new Date(lease.lease_start);
+        const leaseEnd = new Date(lease.lease_end);
         const dueDay = lease.due_date;
-        const rentAmount = lease.monthly_rent;
-        const billingMode = lease.billing_mode || "prepaid";
+        const monthlyRent = lease.monthly_rent;
+        const billingMode = lease.billing_mode || 'prepaid';
 
-        payments.sort(
-          (a, b) => new Date(b.payment_date) - new Date(a.payment_date)
-        );
-        let lastPaymentDate =
-          payments.length > 0 ? new Date(payments[0].payment_date) : null;
+        // 4. Organize payments by period
+        const paymentMap = new Map();
+        payments.forEach(payment => {
+          const paymentDate = new Date(payment.payment_date);
+          const periodKey = `${paymentDate.getFullYear()}-${(paymentDate.getMonth() + 1).toString().padStart(2, '0')}`;
+          
+          if (!paymentMap.has(periodKey)) {
+            paymentMap.set(periodKey, {
+              totalPaid: 0,
+              payments: []
+            });
+          }
+          
+          paymentMap.get(periodKey).totalPaid += payment.amount;
+          paymentMap.get(periodKey).payments.push({
+            date: payment.payment_date,
+            amount: payment.amount,
+            method: payment.method
+          });
+        });
 
-        if (lastPaymentDate && lastPaymentDate < leaseStartDate) {
-          lastPaymentDate = leaseStartDate;
-        }
-
-        let expectedPaymentDate;
-        let totalDaysOverdue = 0;
+        // 5. Calculate overdue periods
+        let currentDate = new Date(leaseStart);
         let monthsOverdue = 0;
+        let totalDebt = 0;
+        const overdueDetails = [];
 
-        if (lastPaymentDate) {
-          expectedPaymentDate = new Date(lastPaymentDate);
-          expectedPaymentDate.setDate(dueDay);
+        while (currentDate <= today && currentDate <= leaseEnd) {
+          const periodKey = `${currentDate.getFullYear()}-${(currentDate.getMonth() + 1).toString().padStart(2, '0')}`;
+          const periodPayments = paymentMap.get(periodKey) || { totalPaid: 0, payments: [] };
+          const expectedPayment = billingMode === 'prepaid' 
+            ? monthlyRent 
+            : (currentDate > leaseStart ? monthlyRent : 0);
 
-          // Adjust based on billing mode
-          if (billingMode === "prepaid") {
-            expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
+          if (periodPayments.totalPaid < expectedPayment) {
+            const amountDue = expectedPayment - periodPayments.totalPaid;
+            monthsOverdue++;
+            totalDebt += amountDue;
+
+            overdueDetails.push({
+              period: periodKey,
+              due_date: setSafeDueDate(new Date(currentDate), dueDay).toISOString().split('T')[0],
+              expected_amount: expectedPayment,
+              paid_amount: periodPayments.totalPaid,
+              balance: amountDue,
+              payments: periodPayments.payments,
+              is_partial: periodPayments.totalPaid > 0 && periodPayments.totalPaid < expectedPayment
+            });
           }
-        } else {
-          expectedPaymentDate = new Date(leaseStartDate);
-          expectedPaymentDate.setDate(dueDay);
 
-          if (leaseStartDate.getDate() > dueDay) {
-            expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
-          }
-
-          // Prepaid starts from lease start, postpaid starts a month later
-          if (billingMode === "postpaid") {
-            expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
-          }
+          currentDate.setMonth(currentDate.getMonth() + 1);
         }
 
-        while (
-          expectedPaymentDate <= today &&
-          expectedPaymentDate < leaseEndDate
-        ) {
-          monthsOverdue++;
+        // 6. Add to report if overdue
+        if (overdueDetails.length > 0) {
+          const { data: property } = await supabase
+            .from('properties')
+            .select('name')
+            .eq('id', tenant.property_id)
+            .single();
 
-          const periodEnd = new Date(expectedPaymentDate);
-          periodEnd.setMonth(periodEnd.getMonth() + 1);
-          periodEnd.setDate(dueDay);
-
-          if (periodEnd > today) {
-            totalDaysOverdue += Math.floor(
-              (today - expectedPaymentDate) / (1000 * 60 * 60 * 24)
-            );
-          } else {
-            totalDaysOverdue += Math.floor(
-              (periodEnd - expectedPaymentDate) / (1000 * 60 * 60 * 24)
-            );
-          }
-
-          expectedPaymentDate.setMonth(expectedPaymentDate.getMonth() + 1);
-        }
-
-        if (monthsOverdue > 0) {
           overdueReport.push({
+            tenant_id: tenant.id,
             tenant_name: tenant.full_name,
-            months_overdue: monthsOverdue,
-            days_overdue: totalDaysOverdue,
-            last_payment_date: lastPaymentDate
-              ? lastPaymentDate.toISOString().split("T")[0]
-              : "Never",
-            property: tenant.property_id,
-            total_amount_due: monthsOverdue * rentAmount,
-            due_day_of_month: dueDay,
+            property_name: property?.name || 'Unknown',
+            lease_id: lease.id,
             billing_mode: billingMode,
+            monthly_rent: monthlyRent,
+            total_months_overdue: monthsOverdue,
+            total_amount_due: totalDebt,
+            overdue_details: overdueDetails,
+            last_payment_date: payments[0]?.payment_date || null,
+            lease_start: lease.lease_start,
+            lease_end: lease.lease_end
           });
         }
       } catch (err) {
-        console.error(`Error processing tenant ${tenant.id}:`, err);
-        // Continue with next tenant
+        console.error(`Error processing tenant ${tenant.id}:`, err.message);
+        continue;
       }
     }
 
-    res.status(200).json(overdueReport);
+    res.status(200).json({
+      success: true,
+      generated_at: new Date().toISOString(),
+      data: overdueReport
+    });
   } catch (error) {
-    console.error("Report generation error:", error);
-    res.status(500).json({ error: "Error generating overdue report" });
+    console.error("Report generation error:", error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 });
 
