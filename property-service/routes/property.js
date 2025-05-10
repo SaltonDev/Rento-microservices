@@ -14,7 +14,24 @@ router.post('/', async (req, res) => {
 
   if (error) return res.status(500).json({ error: error.message })
   res.status(201).json(data)
-})
+});
+
+//fetch property details by property id
+router.get('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const { data, error } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('id', id)
+    .single(); // returns a single object instead of an array
+
+  if (error) {
+    return res.status(404).json({ error: 'Property not found' });
+  }
+
+  res.json(data);
+});
 
 // Get all properties
 router.get('/', async (req, res) => {

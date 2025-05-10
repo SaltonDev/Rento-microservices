@@ -111,5 +111,22 @@ router.get('/:id',async(req,res) => {
 
   res.status(200).json(data);
 });
+//4 .get getall unit details by unit ID
+router.get('/unit/:id', async (req, res) => {
+  const { id } = req.params;
+
+  const { data, error } = await supabase
+    .from("units")
+    .select("*")
+    .eq("id", id)
+    .single(); // ensures only one unit is returned
+
+  if (error) {
+    console.error(error);
+    return res.status(404).json({ error: "Unit not found" });
+  }
+
+  res.status(200).json(data);
+});
 
 module.exports = router;
