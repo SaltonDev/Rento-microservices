@@ -56,7 +56,7 @@ router.get('/', async (req, res) => {
           // Fetch tenant and property in parallel
           const [tenantRes, propertyRes] = await Promise.all([
             axios.get(`https://rento-tenant-microservice.onrender.com/api/tenants/${lease.tenant_id}`),
-            axios.get(`http://localhost:3002/api/properties/${lease.property_id}`)
+            axios.get(`https://rento-property-microservice.onrender.com/api/properties/${lease.property_id}`)
           ]);
 
           const tenant = tenantRes.data;
@@ -65,7 +65,7 @@ router.get('/', async (req, res) => {
           let unit = null;
           if (tenant.unit_id) {
             try {
-              const unitRes = await axios.get(`http://localhost:3003/api/units/unit/${tenant.unit_id}`);
+              const unitRes = await axios.get(`https://rento-units-microservice.onrender.com/api/units/unit/${tenant.unit_id}`);
               unit = unitRes.data;
             } catch (unitErr) {
               console.error('Error fetching unit data:', unitErr.message);
