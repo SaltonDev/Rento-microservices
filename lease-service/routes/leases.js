@@ -131,4 +131,74 @@ router.delete('/:id', async (req, res) => {
   res.status(204).send();
 });
 
+//get expiring leases
+
+// Microservice base URLs
+const TENANT_SERVICE_URL = "https://rento-tenant-microservice.onrender.com/api/tenants/"; 
+const PROPERTY_SERVICE_URL = "https://rento-property-microservice.onrender.com/api/properties/"; 
+const UNIT_SERVICE_URL = "https://rento-units-microservice.onrender.com/api/units/unit/"; 
+
+// Reusable fetch function
+async function fetchMicroserviceData(url, id) {
+  try {
+    const res = await axios.get(`${url}${id}`);
+    return res.data;
+  } catch (err) {
+    console.error(`Error fetching from ${url}${id}:`, err.message);
+    return null;
+  }
+}
+
+router.get('/status', async (req, res) => {
+  try {
+    const { data: leases, error } = await supabase.from('leases').select('*');
+    if (error) return res.status(500).json({ error: error.message });
+
+    const today = new Date();
+    const expiringSoon = [];
+    const expired = [];
+
+    for (const lease of leases) {
+      const leaseEndDate = new Date(lease.lease_end);
+      const diffDays = Math.ceil((leaseEndDate - today) / (1000 * 60 * 60 * 24));
+
+      // Fetch related data from microservices
+      const tenant = await fetchMicroserviceData(TENANT_SERVICE_URL, lease.tenant_id);
+      const property = await fetchMicroserviceData(PROPERTY_SERVICE_URL, lease.property_id);
+      const unit = tenant?.unit_id
+        ? await fetchMicroserviceData(UNIT_SERVICE_URL, tenant.unit_id)
+        : null;
+
+      const leaseData = {
+        ...lease,
+        tenant_name: tenant?.full_name || 'Unknown',
+        tenant_email: tenant?.email || 'Unknown',
+        property_name: property?.name || 'Unknown',
+        property_address: property?.address || 'Unknown',
+        unit_name: unit?.unit_name || 'N/A',
+        unit_floor: unit?.floor || 'N/A',
+      };
+
+      if (diffDays < 0) {
+        expired.push({
+          ...leaseData,
+          status: 'expired',
+          days_past: Math.abs(diffDays),
+        });
+      } else if (diffDays <= 30) {
+        expiringSoon.push({
+          ...leaseData,
+          status: 'expiring',
+          remaining_days: diffDays,
+        });
+      }
+    }
+
+    res.json({ expired, expiringSoon });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Unexpected error occurred.' });
+  }
+});
+
 module.exports = router;
