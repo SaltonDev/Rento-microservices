@@ -24,13 +24,59 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch lease data or create payment' });
   }
 });
+//get all payment
+// Microservice endpoints
+const TENANT_SERVICE_URL = 'https://rento-tenant-microservice.onrender.com/api/tenants/';
+const PROPERTY_SERVICE_URL = 'https://rento-property-microservice.onrender.com/api/properties/';
 
-// Get all payments
+// Reusable fetch helper
+async function fetchMicroserviceData(baseUrl, id) {
+  try {
+    const response = await axios.get(`${baseUrl}${id}`);
+    return response.data;
+  } catch (err) {
+    console.error(`Error fetching ${baseUrl}${id}:`, err.message);
+    return null;
+  }
+}
+
+// Route
 router.get('/', async (req, res) => {
-  const { data, error } = await supabase.from('payments').select('*');
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  try {
+    // Fetch payment records
+    const { data: payments, error } = await supabase.from('payments').select('*');
+    if (error) return res.status(500).json({ error: error.message });
+
+    const result = [];
+
+    for (const payment of payments) {
+      // Get tenant info
+      const tenant = await fetchMicroserviceData(TENANT_SERVICE_URL, payment.tenant_id);
+      const tenantName = tenant?.full_name || 'Unknown';
+      const propertyId = tenant?.property_id;
+
+      // Get property info
+      const property = propertyId
+        ? await fetchMicroserviceData(PROPERTY_SERVICE_URL, propertyId)
+        : null;
+      const propertyName = property?.name || 'Unknown';
+
+      result.push({
+        tenant: tenantName,
+        property: propertyName,
+        method: payment.method,
+        amount: payment.amount,
+        status: payment.status
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error in /payments/with-info:', err.message);
+    res.status(500).json({ error: 'Unexpected error occurred.' });
+  }
 });
+
 
 // Get payment history by tenant ID
 router.get('/tenant/:tenantId', async (req, res) => {
