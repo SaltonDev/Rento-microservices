@@ -74,6 +74,7 @@ router.get("/", async (req, res) => {
         method: payment.method,
         amount: payment.amount,
         status: payment.status,
+        payment_date:payment.payment_date
       });
     }
 
