@@ -6,11 +6,7 @@ const cors = require('cors');
 
 const app = express();
 
-app.use(cors({
-  origin: 'https://v0-rento-next-js-app-hb.vercel.app',
-  methods: ['GET', 'POST', 'PUT', 'DELETE','PATCH'],
-  credentials: true // only if you need to send cookies
-}));
+app.use(cors());
 
 app.use(express.json());
 
