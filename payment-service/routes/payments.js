@@ -41,7 +41,7 @@ async function fetchMicroserviceData(baseUrl, id) {
   }
 }
 
-// Route
+// Route to fetch all payments
 router.get("/", async (req, res) => {
   try {
     // Fetch payment records
@@ -80,10 +80,59 @@ router.get("/", async (req, res) => {
 
     res.json(result);
   } catch (err) {
-    console.error("Error in /payments/with-info:", err.message);
+    console.error("Error fetching tenants", err.message);
     res.status(500).json({ error: "Unexpected error occurred." });
   }
 });
+
+//fetch recent payments
+// Route
+router.get("/recent", async (req, res) => {
+  try {
+    // Fetch the 5 most recent payment records
+    const { data: payments, error } = await supabase
+      .from("payments")
+      .select("*")
+      .order("payment_date", { ascending: false })
+      .limit(5);
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    const result = [];
+
+    for (const payment of payments) {
+      // Get tenant info
+      const tenant = await fetchMicroserviceData(
+        TENANT_SERVICE_URL,
+        payment.tenant_id
+      );
+      const tenantName = tenant?.full_name || "Unknown";
+      const propertyId = tenant?.property_id;
+
+      // Get property info
+      const property = propertyId
+        ? await fetchMicroserviceData(PROPERTY_SERVICE_URL, propertyId)
+        : null;
+      const propertyName = property?.name || "Unknown";
+
+      result.push({
+        id: payment.id,
+        tenant: tenantName,
+        property: propertyName,
+        method: payment.method,
+        amount: payment.amount,
+        status: payment.status,
+        payment_date: payment.payment_date,
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error("Error fetching tenants", err.message);
+    res.status(500).json({ error: "Unexpected error occurred." });
+  }
+});
+
 
 // Get payment history by tenant ID
 router.get("/tenant/:tenantId", async (req, res) => {
