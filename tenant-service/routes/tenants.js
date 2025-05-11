@@ -26,6 +26,51 @@ router.get("/", async (_, res) => {
   if (error) return res.status(500).json({ error });
   res.json(data);
 });
+
+//Stats
+router.get("/stats", async (_, res) => {
+  try {
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
+
+    // Count tenants this month
+    const { count: thisMonthCount, error: thisMonthError } = await supabase
+      .from("tenants")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", startOfThisMonth);
+
+      
+
+    if (thisMonthError) return res.status(500).json({ error: thisMonthError.message });
+
+    // Count tenants last month
+    const { count: lastMonthCount, error: lastMonthError } = await supabase
+      .from("tenants")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", startOfLastMonth)
+      .lte("created_at", endOfLastMonth);
+
+    if (lastMonthError) return res.status(500).json({ error: lastMonthError.message });
+
+    // Calculate percent change
+    const percentChange = lastMonthCount === 0
+      ? 100
+      : Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 100);
+
+    res.json({
+      totalTenants: {
+        count: thisMonthCount,
+        percentChange,
+      },
+    });
+  } catch (err) {
+    console.error("Error fetching tenants summary:", err.message);
+    res.status(500).json({ error: "Unexpected error occurred." });
+  }
+});
+
 // get tenant by tenant id
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
