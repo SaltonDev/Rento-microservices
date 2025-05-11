@@ -132,6 +132,54 @@ router.get("/recent", async (req, res) => {
     res.status(500).json({ error: "Unexpected error occurred." });
   }
 });
+//fetch Stats
+router.get("/stats", async (req, res) => {
+  try {
+    const now = new Date();
+    const startOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
+
+    // Fetch this month's total revenue
+    const { data: thisMonthPayments, error: thisMonthError } = await supabase
+      .from("payments")
+      .select("amount")
+      .gte("payment_date", startOfThisMonth);
+
+      console.log(thisMonthPayments)
+
+    if (thisMonthError) return res.status(500).json({ error: thisMonthError.message });
+
+    const thisMonthAmount = thisMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+
+    // Fetch last month's total revenue
+    const { data: lastMonthPayments, error: lastMonthError } = await supabase
+      .from("payments")
+      .select("amount")
+      .gte("payment_date", startOfLastMonth)
+      .lte("payment_date", endOfLastMonth);
+
+    if (lastMonthError) return res.status(500).json({ error: lastMonthError.message });
+
+    const lastMonthAmount = lastMonthPayments.reduce((sum, p) => sum + p.amount, 0);
+
+    // Calculate percent change
+    const percentChange = lastMonthAmount === 0
+      ? 100
+      : Number((((thisMonthAmount - lastMonthAmount) / lastMonthAmount) * 100).toFixed(1));
+
+    res.json({
+      totalRevenue: {
+        amount: thisMonthAmount,
+        percentChange,
+      }
+    });
+  } catch (err) {
+    console.error("Error calculating total revenue:", err.message);
+    res.status(500).json({ error: "Unexpected error occurred." });
+  }
+});
+
 
 
 // Get payment history by tenant ID
