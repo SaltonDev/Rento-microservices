@@ -133,5 +133,38 @@ router.post("/forget-password", async (req, res) => {
     return res.status(500).json({ error: "Error sending reset email" });
   }
 });
+//check valid reset token
+router.post("/check-reset-token", async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: "Token is required" });
 
+  // Fetch all unused tokens
+  const { data: tokens, error } = await supabase
+    .from("password_reset_tokens")
+    .select("*")
+    .eq("used", false);
+
+  if (error) return res.status(500).json({ error: "Database error" });
+
+  const now = new Date();
+
+  for (const record of tokens) {
+    // Check if token has expired
+    const expiresAt = new Date(record.expires_at);
+    if (expiresAt < now) continue; // Skip expired token
+
+    // Check token match
+    const isMatch = await bcrypt.compare(token, record.token);
+    if (isMatch) {
+      return res.status(200).json({
+        success:true,
+        message: "Token is valid",
+        user_id: record.user_id,
+        token_id: record.id // useful for marking token as used later
+      });
+    }
+  }
+
+  return res.status(400).json({ success:false,error: "Invalid or expired token" });
+});
 module.exports = router;
