@@ -1,10 +1,12 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
+const saltRounds =10;
+const { nanoid } = require('nanoid');
 const { signToken } = require("../utils/jwt");
 const supabase = require("../supabaseClient");
 const router = express.Router();
-const nodemailer = require("nodemailer");
-const axios = require('axios');
+const { v4: uuidv4 } = require("uuid");
+const axios = require("axios");
 // Register
 router.post("/register", async (req, res) => {
   const { email, password } = req.body;
@@ -55,7 +57,7 @@ router.post("/login", async (req, res) => {
     success: true,
   });
 });
-
+//get user by email
 const getUserByEmail = async (email) => {
   const { data, error } = await supabase
     .from("users")
@@ -74,26 +76,61 @@ const getUserByEmail = async (email) => {
 
   return { user: data };
 };
+//generate token
+function generateResetToken() {
+  return nanoid(64); // Generates a 64-character secure token
+}
+//forget-password link
 router.post("/forget-password", async (req, res) => {
   const { email } = req.body;
-  //see if user exists
+
+  // Step 1: Check if user exists
   const { user, error } = await getUserByEmail(email);
 
   if (error) {
-    res.status(400).json(error); // → "No user found with that email" or other error
-  } else {
-    //send reset link
-    const emailResponse = await axios.post(
-      "http://localhost:3007/send-mail",
+    return res.status(400).json({ error });
+  }
+
+  const token = generateResetToken();
+  const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
+
+  // Optional: Hash token for extra security before saving
+  const hashedToken = await bcrypt.hash(token, saltRounds);
+
+  // Step 2: Insert token + expiry into password_reset_tokens
+  const { error: insertError } = await supabase
+    .from("password_reset_tokens")
+    .insert([
       {
-        email,
+        user_id: user.id, // assuming auth.users UUID
+        token: hashedToken,
+        expires_at: expires.toISOString(),
+      },
+    ]);
+
+  if (insertError) {
+    return res.status(500).json({ error: "Failed to store reset token" });
+  }
+
+  // Step 3: Send email with the original (non-hashed) token
+  try {
+    const emailResponse = await axios.post(
+      "https://email-service-agj3.onrender.com/api/email/send-reset-password",
+      {
+        "email":email,
+        "token":token, // plain token
       }
     );
-        if (emailResponse.status === 200) {
-      res.json({ message: 'Reset email sent' });
+
+    if (emailResponse.data.success) {
+      return res
+        .status(201)
+        .json({ message: "Reset password link sent to your email" });
     } else {
-      res.status(500).json({ error: 'Failed to send reset email' });
+      return res.status(500).json({ error: "Failed to send reset email" });
     }
+  } catch (err) {
+    return res.status(500).json({ error: "Error sending reset email" });
   }
 });
 
