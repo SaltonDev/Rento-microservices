@@ -15,7 +15,7 @@ const transporter = nodemailler.createTransport({
 
 router.post("/send-reset-password", async (req, res) => {
   const { email , token} = req.body;  
-  const resetLink = `https://yourfrontend.com/reset-password?token=${token}`;
+  const resetLink = `https://v0-rento-next-js-app-hb.vercel.app/reset-password?token=${token}`;
   
   const mailOptions = {
     from: process.env.GMAIL_USER,
