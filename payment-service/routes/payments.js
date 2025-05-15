@@ -86,7 +86,7 @@ router.get("/", async (req, res) => {
 });
 
 //fetch recent payments
-// Route
+
 router.get("/recent", async (req, res) => {
   try {
     // Fetch the 5 most recent payment records
@@ -132,6 +132,7 @@ router.get("/recent", async (req, res) => {
     res.status(500).json({ error: "Unexpected error occurred." });
   }
 });
+
 //fetch Stats
 router.get("/stats", async (req, res) => {
   try {
