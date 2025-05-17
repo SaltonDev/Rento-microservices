@@ -168,9 +168,9 @@ router.post("/check-reset-token", async (req, res) => {
 });
 //update password
 router.put("/update-password", async (req, res) => {
-  const { email, newPassword } = req.body;
+  const { id, newPassword } = req.body;
 
-  if (!email || !newPassword) {
+  if (!id || !newPassword) {
     return res.status(400).json({ error: "Email and new password are required" });
   }
 
@@ -178,7 +178,7 @@ router.put("/update-password", async (req, res) => {
   const { data: user, error: fetchError } = await supabase
     .from("users")
     .select("*")
-    .eq("email", email)
+    .eq("id", id)
     .single();
 
   if (fetchError || !user) {
@@ -192,7 +192,7 @@ router.put("/update-password", async (req, res) => {
   const { error: updateError } = await supabase
     .from("users")
     .update({ password: hashedPassword })
-    .eq("email", email);
+    .eq("id", id);
 
   if (updateError) {
     return res.status(500).json({ error: updateError.message });
