@@ -7,7 +7,7 @@ const supabase = require("../supabaseClient");
 const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
 const axios = require("axios");
-// Register
+//Register
 router.post("/register", async (req, res) => {
   const { email, password } = req.body;
 
@@ -34,8 +34,7 @@ router.post("/register", async (req, res) => {
   const token = signToken(data);
   res.json({ user: { id: data.id, email: data.email }, token });
 });
-
-// Login
+//Login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
@@ -166,5 +165,39 @@ router.post("/check-reset-token", async (req, res) => {
   }
 
   return res.status(400).json({ success:false,error: "Invalid or expired token" });
+});
+//update password
+router.put("/update-password", async (req, res) => {
+  const { email, newPassword } = req.body;
+
+  if (!email || !newPassword) {
+    return res.status(400).json({ error: "Email and new password are required" });
+  }
+
+  // Check if the user exists
+  const { data: user, error: fetchError } = await supabase
+    .from("users")
+    .select("*")
+    .eq("email", email)
+    .single();
+
+  if (fetchError || !user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  // Hash the new password
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+  // Update the password in the database
+  const { error: updateError } = await supabase
+    .from("users")
+    .update({ password: hashedPassword })
+    .eq("email", email);
+
+  if (updateError) {
+    return res.status(500).json({ error: updateError.message });
+  }
+
+  res.json({ message: "Password updated successfully" });
 });
 module.exports = router;
