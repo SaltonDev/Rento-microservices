@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const axios = require("axios");
 const supabase = require("../supabaseClient");
 
 // Create tenant
@@ -7,6 +8,7 @@ router.post("/", async (req, res) => {
   const { full_name, email, phone_number, property_id, unit_id, monthly_rent } =
     req.body;
 
+    //add tenant
   const { data, error } = await supabase
     .from("tenants")
     .insert([
@@ -16,15 +18,55 @@ router.post("/", async (req, res) => {
     .single();
 
   if (error) return res.status(400).json({ error });
+  //udpate unit to occupied
+
 
   res.json(data);
 });
 
 // Get all tenants
 router.get("/", async (_, res) => {
-  const { data, error } = await supabase.from("tenants").select("*");
-  if (error) return res.status(500).json({ error });
-  res.json(data);
+try {
+    const { data: tenants, error } = await supabase.from("tenants").select("*");
+    if (error) return res.status(500).json({ error });
+
+    const tenantsWithDetails = await Promise.all(
+      tenants.map(async (tenant) => {
+        let unitName = null;
+        let propertyName = null;
+
+        try {
+          // Step 1: Fetch unit details
+          const unitRes = await axios.get(`https://rento-units-microservice.onrender.com/api/units/unit/${tenant.unit_id}`);
+          const unit = unitRes.data;
+          unitName = unit.unit_name;
+          
+          // Step 2: Fetch property details using property_id from unit
+          const propertyRes = await axios.get(`https://rento-property-microservice.onrender.com/api/properties/${unit.property_id}`);
+          const property = propertyRes.data;
+          propertyName = property.name;
+
+        } catch (err) {
+          console.error(`Error fetching unit or property for tenant ${tenant.id}:`, err.message);
+        }
+
+        return {
+          "id":tenant.id,
+          "tenant":tenant.full_name,
+          "email":tenant.email,
+          "tel":tenant.phone_number,
+          "rent":tenant.monthly_rent,
+          "property":propertyName,
+          "unit":unitName,         
+        };
+      })
+    );
+
+    res.json(tenantsWithDetails);
+  } catch (err) {
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 //Stats
