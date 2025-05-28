@@ -200,4 +200,29 @@ router.put("/update-password", async (req, res) => {
 
   res.json({ message: "Password updated successfully" });
 });
+//update profile
+router.put("/update-profile", authenticate, async (req, res) => {
+  const { email, name, password } = req.body;
+
+  const updateFields = {};
+
+  if (email) updateFields.email = email;
+  if (name) updateFields.name = name;
+  if (password) updateFields.password = await bcrypt.hash(password, 10);
+
+  if (Object.keys(updateFields).length === 0) {
+    return res.status(400).json({ error: "No fields to update" });
+  }
+
+  const { data, error } = await supabase
+    .from("users")
+    .update(updateFields)
+    .eq("id", req.user.id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ user: { id: data.id, email: data.email, name: data.name } });
+});
 module.exports = router;
