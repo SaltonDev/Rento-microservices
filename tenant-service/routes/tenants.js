@@ -18,7 +18,21 @@ router.post("/", async (req, res) => {
     .single();
 
   if (error) return res.status(400).json({ error });
-  //udpate unit to occupied
+  
+  // Update unit status to "occupied"
+  try {
+    await axios.put(
+      `https://rento-units-microservice.onrender.com/api/units/${unit_id}`,
+      { status: "occupied" }
+    );
+  } catch (unitError) {
+    console.error("Failed to update unit status:", unitError.message);
+    // Optional: return a warning along with tenant data
+    return res.status(207).json({
+      warning: "Tenant created, but failed to update unit status",
+      tenant: data,
+    });
+  }
 
 
   res.json(data);
