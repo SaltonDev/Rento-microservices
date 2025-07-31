@@ -5,4 +5,4 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY // Use service role to allow user creation
 )
 
-module.exports = supabase
+module.exports = {supabase}

@@ -1,37 +1,25 @@
 require("dotenv").config();
-const nodemailler = require("nodemailer");
 const express = require("express");
 const router = express.Router();
-
-const transporter = nodemailler.createTransport({
-  host: process.env.GMAIL_HOST,
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+const { supabase } = require("../supabaseClient"); // Make sure this is correct
 
 router.post("/send-reset-password", async (req, res) => {
-  const { email , token} = req.body;  
-  const resetLink = `https://v0-rento-login-system.vercel.app/reset-password/${token}`;
-  
-  const mailOptions = {
-    from: process.env.GMAIL_USER,
-    to: email,
-    subject: "Rento - Reset Your Password",
-    text: resetLink,
-  };
-  transporter.sendMail(mailOptions, (error, info) => {
-    if (error) {
-      return res.status(500).json({ error: error });
-    } else {
-      return res.status(201).json({ success:true,message: "Email sent", info });
-    }
-  });
+  const { email } = req.body;
 
- 
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  try {
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email);
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.status(200).json({ success: true, message: "Reset email sent via Supabase",data: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || "An error occurred while sending the reset email" });
+  }
 });
 
 module.exports = router;
