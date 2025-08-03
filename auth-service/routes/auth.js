@@ -11,42 +11,49 @@ const axios = require("axios");
 router.post("/register", async (req, res) => {
   const { email, password, name } = req.body;
 
-  const { data:usersList , error:userListError } = await supabase.auth.admin.listUsers({
-    page: 1,
-    perPage: 100,
-  });
-
-  if (userListError) {
-    return res.status(500).json({ success: "false", message: userListError.message });
-  }
-  const user = usersList.users.find((u) => u.email === email);
-
-  if (user) return res.status(400).json({ success:"false",message: "User already exists" });
-
-  // Create new user
-  const { data , error: newUserError } =
-    await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name },
+  const { data: usersList, error: userListError } =
+    await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 100,
     });
 
-  if (newUserError) return res.status(500).json({ success: "false",error: error.message });
+  if (userListError) {
+    return res
+      .status(500)
+      .json({ success: "false 1", message: userListError.message });
+  }
   
-  res.status(200).json({success:true},User);
+  const user = usersList.users.find((u) => u.email === email);
+
+  if (user)
+    return res
+      .status(400)
+      .json({ success: "false 2", message: "User already exists" });
+
+  // Create new user
+  const { data, error: newUserError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { name },
+  });
+
+  if (newUserError)
+    return res.status(500).json({ success: "false 3", error: error.message });
+
+  res.status(200).json({ success: true }, user);
 });
 //Login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
- 
+
   const { data: User, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
-
+   console.log(User);
   if (error) {
-    return res.status(401).json({ success:"false",message: error.message });
+    return res.status(401).json({ success: "false", message: error.message });
   }
 
   const { session, user } = User;
@@ -57,13 +64,16 @@ router.post("/login", async (req, res) => {
       email: user.email,
       name: user.user_metadata?.name || "",
     },
-    token: session.access_token,    
+    token: session.access_token,
     success: true,
   });
 });
 //get user by email helper function
 const getUserByEmail = async (email) => {
-  const { data, error } = await supabase.auth.admin.listUsers({ page: 1, perPage: 100 });
+  const { data, error } = await supabase.auth.admin.listUsers({
+    page: 1,
+    perPage: 100,
+  });
 
   if (error) {
     return { user: null, error: "Failed to fetch users" };
@@ -75,14 +85,14 @@ const getUserByEmail = async (email) => {
   } else {
     return { user: null, error: "User not found" };
   }
-};  
+};
 
 //generate token
 function generateResetToken() {
   return nanoid(64); // Generates a 64-character secure token
 }
 //forget-password link
-router.post('/forget-password', async (req, res) => {
+router.post("/forget-password", async (req, res) => {
   const { email } = req.body;
 
   // ✅ Step 1: Use local helper to find user
@@ -93,52 +103,24 @@ router.post('/forget-password', async (req, res) => {
   }
 
   try {
-    // ✅ Step 2: Generate and hash token
-    const token = generateResetToken();
-    const expires = new Date(Date.now() + 1000 * 60 * 60); // 1 hour
-    const hashedToken = await bcrypt.hash(token, saltRounds);
-
-    // Optional: Delete old tokens for the same user
-    await supabase
-      .from('password_reset_tokens')
-      .delete()
-      .eq('user_id', user.id);
-
-    // ✅ Step 3: Save new token
-    const { error: insertError } = await supabase
-      .from('password_reset_tokens')
-      .insert([
-        {
-          user_id: user.id,
-          token: hashedToken,
-          expires_at: expires.toISOString(),
-        },
-      ]);
-
-    if (insertError) {
-      return res.status(500).json({ error: 'Failed to store reset token' });
-    }
-
-    // ✅ Step 4: Send token to email service
+    // ✅ Step 2: Send token to email service
     const emailResponse = await axios.post(
-      'https://email-service-agj3.onrender.com/api/email/send-reset-password',
+      "https://email-service-agj3.onrender.com/api/email/send-reset-password",
       {
         email,
-        token,
       }
     );
 
     if (emailResponse.data.success) {
       return res
         .status(201)
-        .json({ message: 'Reset password link sent to your email' });
+        .json({ message: emailResponse.data.message });
     } else {
-      return res.status(500).json({ error: 'Failed to send reset email' });
+      return res.status(500).json({ error: emailResponse.data.error || "Failed to send reset email" });
     }
-
   } catch (err) {
-    console.error('Forget password error:', err);
-    return res.status(500).json({ error: 'Failed to process request' });
+    console.error("Forget password error:", err);
+    return res.status(500).json({ error: "Failed to process request" });
   }
 });
 //check valid reset token
@@ -190,38 +172,18 @@ router.post("/check-reset-token", async (req, res) => {
 
 //update password
 router.put("/update-password", async (req, res) => {
-  const { id, newPassword } = req.body;
+  const {  newPassword } = req.body;
 
-  if (!id || !newPassword) {
+  if ( !newPassword) {
     return res
       .status(400)
       .json({ error: "Email and new password are required" });
   }
 
-  // Check if the user exists
-  const { data: user, error: fetchError } = await supabase
-    .from("users")
-    .select("*")
-    .eq("id", id)
-    .single();
-
-  if (fetchError || !user) {
-    return res.status(404).json({ error: "User not found" });
+  const {data,error} = await supabase.auth.updateUser({ password: newPassword});
+  if (error) {
+    return res.status(500).json({ error: error.message });
   }
-
-  // Hash the new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-  // Update the password in the database
-  const { error: updateError } = await supabase
-    .from("users")
-    .update({ password: hashedPassword })
-    .eq("id", id);
-
-  if (updateError) {
-    return res.status(500).json({ error: updateError.message });
-  }
-
   res.json({ message: "Password updated successfully" });
 });
 //update profile

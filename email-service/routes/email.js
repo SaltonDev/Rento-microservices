@@ -16,7 +16,7 @@ router.post("/send-reset-password", async (req, res) => {
       return res.status(500).json({ error: error.message });
     }
 
-    return res.status(200).json({ success: true, message: "Reset email sent via Supabase",data: data });
+    return res.status(200).json({ success: true, message: "Reset Password Link Sent to your Email via Supabase Auth "});
   } catch (err) {
     return res.status(500).json({ error: err.message || "An error occurred while sending the reset email" });
   }
