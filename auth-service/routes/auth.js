@@ -35,7 +35,7 @@ router.post("/register", async (req, res) => {
     email,
     password,
     email_confirm: true,
-    user_metadata: { name },
+    user_metadata: { name: name || "" },
   });
 
   if (newUserError)
