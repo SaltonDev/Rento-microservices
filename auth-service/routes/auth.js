@@ -51,7 +51,7 @@ router.post("/login", async (req, res) => {
     email,
     password,
   });
-   console.log(User);
+   
   if (error) {
     return res.status(401).json({ success: "false", message: error.message });
   }
