@@ -34,7 +34,6 @@ router.post("/", async (req, res) => {
     });
   }
 
-
   res.json(data);
 });
 
@@ -170,9 +169,50 @@ router.put("/:id", async (req, res) => {
 // Delete tenant
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
-  const { error } = await supabase.from("tenants").delete().eq("id", id);
-  if (error) return res.status(400).json({ error });
-  res.status(204).send();
+  
+  try {
+    // First, get the tenant to find their unit_id before deleting
+    const { data: tenant, error: fetchError } = await supabase
+      .from("tenants")
+      .select("unit_id")
+      .eq("id", id)
+      .single();
+
+    if (fetchError) {
+      return res.status(400).json({ error: fetchError });
+    }
+
+    // Delete the tenant
+    const { error: deleteError } = await supabase
+      .from("tenants")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      return res.status(400).json({ error: deleteError });
+    }
+
+    // Update the unit status to "vacant"
+    if (tenant && tenant.unit_id) {
+      try {
+        await axios.put(
+          `https://rento-units-microservice.onrender.com/api/units/${tenant.unit_id}`,
+          { status: "vacant" }
+        );
+      } catch (unitError) {
+        console.error("Failed to update unit status:", unitError.message);
+        // Return success with warning that unit status wasn't updated
+        return res.status(207).json({
+          warning: "Tenant deleted, but failed to update unit status to vacant",
+        });
+      }
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    console.error("Error in delete tenant:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 module.exports = router;
